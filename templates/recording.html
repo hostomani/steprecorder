@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
+  <style>
+    .img-container { position: relative; }
+    .img-container img { display: block; width: 100%; height: auto; }
+    .cropper-container { max-width: 100% !important; }
+
+    .annotate-canvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+    }
+    .annotate-canvas.tool-pen    { cursor: crosshair; }
+    .annotate-canvas.tool-rect   { cursor: crosshair; }
+    .annotate-canvas.tool-circle { cursor: crosshair; }
+    .annotate-canvas.tool-arrow  { cursor: crosshair; }
+    .annotate-canvas.tool-text   { cursor: text; }
+
+    .tool-active {
+      background-color: #3b82f6 !important;
+      color: #fff !important;
+      box-shadow: 0 0 0 2px #93c5fd;
+    }
+
+    .canvas-text-input {
+      position: absolute;
+      background: transparent;
+      border: 2px dashed rgba(59,130,246,0.6);
+      outline: none;
+      padding: 2px 4px;
+      min-width: 60px;
+      z-index: 20;
+    }
+
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 8px;
+      border-right: 1px solid #e5e7eb;
+    }
+    .toolbar-group:last-child { border-right: none; }
+
+    .color-swatch {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: border-color 0.15s;
+    }
+    .color-swatch:hover, .color-swatch.active { border-color: #374151; }
+
+    .size-preview {
+      width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .size-dot {
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* Quill editor styling */
+    .ql-editor {
+      min-height: 40px;
+      font-size: 14px;
+    }
+    .preamble-editor .ql-editor {
+      min-height: 80px;
+    }
+    .ql-toolbar.ql-snow {
+      border-radius: 6px 6px 0 0;
+      border-color: #e5e7eb;
+    }
+    .ql-container.ql-snow {
+      border-radius: 0 0 6px 6px;
+      border-color: #e5e7eb;
+    }
+    .step-desc-editor .ql-toolbar.ql-snow {
+      padding: 4px 8px;
+    }
+    .step-desc-editor .ql-toolbar .ql-formats {
+      margin-right: 8px;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <div class="max-w-4xl mx-auto px-4 py-8">
+    <div class="mb-6 flex items-center gap-4">
+      <a href="/" class="text-blue-600 hover:text-blue-800 text-sm">&larr; All Recordings</a>
+    </div>
+    <div class="flex items-center justify-between mb-2">
+      <h1 class="text-3xl font-bold text-gray-800">{{ title }}</h1>
+      <a href="/guide/{{ name }}" class="px-4 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition">View Public Guide</a>
+    </div>
+    <p class="text-gray-500 mb-8">{{ steps|length }} steps</p>
+
+    <!-- Preamble -->
+    <div class="bg-white rounded-lg shadow p-6 mb-8">
+      <h2 class="text-sm font-semibold text-gray-700 mb-3">Introduction</h2>
+      <div class="preamble-editor">
+        <div id="preamble-editor">{{ preamble | safe }}</div>
+      </div>
+      <div class="mt-2 flex items-center gap-2">
+        <span id="preamble-status" class="text-xs text-gray-400"></span>
+      </div>
+    </div>
+
+    <div id="steps-list" class="space-y-8">
+      {% for step in steps %}
+      <div class="bg-white rounded-lg shadow p-6 step-card" data-step="{{ step.step_number }}">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-3">
+            <span class="bg-blue-600 text-white text-sm font-bold rounded-full w-8 h-8 flex items-center justify-center">{{ loop.index }}</span>
+            <div class="text-sm text-gray-500">
+              <span class="font-medium text-gray-700">{{ step.action_type | replace('_', ' ') | title }}</span>
+              {% if step.application and step.application.name %}
+                in {{ step.application.name }}
+              {% endif %}
+              {% if step.position %}
+                at ({{ step.position.x }}, {{ step.position.y }})
+              {% endif %}
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="startAnnotate(this, {{ step.step_number }})" class="annotate-btn px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition">Annotate</button>
+            <button onclick="startCrop(this, {{ step.step_number }})" class="crop-btn px-3 py-1 text-sm bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition">Crop</button>
+            <button onclick="saveCrop(this, {{ step.step_number }})" class="save-crop-btn hidden px-3 py-1 text-sm bg-green-100 text-green-700 rounded hover:bg-green-200 transition">Save Crop</button>
+            <button onclick="cancelCrop(this, {{ step.step_number }})" class="cancel-crop-btn hidden px-3 py-1 text-sm bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition">Cancel</button>
+            <button onclick="deleteStep({{ step.step_number }}, this)" class="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 transition">Delete</button>
+          </div>
+        </div>
+
+        <!-- Screenshot -->
+        <div class="img-container rounded border border-gray-200 mb-4">
+          <img src="/recordings/{{ name }}/{{ step.screenshot }}?t={{ step.timestamp }}"
+               alt="Step {{ step.step_number }}"
+               class="step-img">
+        </div>
+
+        <!-- Annotation toolbar (hidden by default) -->
+        <div class="annotate-toolbar hidden mb-4 bg-gray-50 rounded border">
+          <div class="flex flex-wrap items-center p-2">
+            <!-- Tools -->
+            <div class="toolbar-group">
+              <span class="text-xs text-gray-400 mr-1">Tools</span>
+              <button onclick="setTool(this,'pen')" class="tool-btn tool-active px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300" data-tool="pen" title="Pen (P)">
+                <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+              </button>
+              <button onclick="setTool(this,'rect')" class="tool-btn px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300" data-tool="rect" title="Rectangle (R)">
+                <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" stroke-width="2"/></svg>
+              </button>
+              <button onclick="setTool(this,'circle')" class="tool-btn px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300" data-tool="circle" title="Circle (C)">
+                <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="2"/></svg>
+              </button>
+              <button onclick="setTool(this,'arrow')" class="tool-btn px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300" data-tool="arrow" title="Arrow (A)">
+                <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+              </button>
+              <button onclick="setTool(this,'text')" class="tool-btn px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300" data-tool="text" title="Text (T)">
+                <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M12 6v14m-4 0h8"/></svg>
+              </button>
+            </div>
+
+            <!-- Colors -->
+            <div class="toolbar-group">
+              <span class="text-xs text-gray-400 mr-1">Color</span>
+              <div class="color-swatch active" style="background:#ef4444" data-color="#ef4444" onclick="pickColor(this)"></div>
+              <div class="color-swatch" style="background:#f97316" data-color="#f97316" onclick="pickColor(this)"></div>
+              <div class="color-swatch" style="background:#eab308" data-color="#eab308" onclick="pickColor(this)"></div>
+              <div class="color-swatch" style="background:#22c55e" data-color="#22c55e" onclick="pickColor(this)"></div>
+              <div class="color-swatch" style="background:#3b82f6" data-color="#3b82f6" onclick="pickColor(this)"></div>
+              <div class="color-swatch" style="background:#ffffff; border-color:#d1d5db" data-color="#ffffff" onclick="pickColor(this)"></div>
+              <div class="color-swatch" style="background:#000000" data-color="#000000" onclick="pickColor(this)"></div>
+              <input type="color" value="#ef4444" class="annotate-color w-6 h-6 rounded cursor-pointer border-0" title="Custom color" onchange="pickCustomColor(this)">
+            </div>
+
+            <!-- Size -->
+            <div class="toolbar-group">
+              <span class="text-xs text-gray-400 mr-1">Size</span>
+              <input type="range" min="1" max="16" value="3" class="annotate-size w-20" oninput="updateSizePreview(this)">
+              <div class="size-preview"><div class="size-dot" style="width:6px;height:6px"></div></div>
+            </div>
+
+            <!-- Actions -->
+            <div class="toolbar-group">
+              <button onclick="annotateUndo(this)" class="px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300" title="Undo (Ctrl+Z)">Undo</button>
+              <button onclick="saveAnnotation(this, {{ step.step_number }})" class="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700">Save</button>
+              <button onclick="cancelAnnotate(this, {{ step.step_number }})" class="px-3 py-1 text-xs bg-gray-400 text-white rounded hover:bg-gray-500">Cancel</button>
+            </div>
+          </div>
+          <!-- Hint bar -->
+          <div class="px-3 py-1 text-xs text-gray-400 border-t border-gray-200 bg-gray-100 rounded-b">
+            Shortcuts: <b>P</b> Pen &middot; <b>R</b> Rect &middot; <b>C</b> Circle &middot; <b>A</b> Arrow &middot; <b>T</b> Text &middot; <b>Ctrl+Z</b> Undo
+          </div>
+        </div>
+
+        <!-- Rich text description -->
+        <div class="step-desc-editor">
+          <div class="step-desc-quill" data-step="{{ step.step_number }}">{{ step.details.description | safe if step.details and step.details.description else '' }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+  <script>
+    const RECORDING = "{{ name }}";
+    let activeCroppers = {};
+    let saveTimers = {};
+
+    // ==================== Quill editors ====================
+    const QUILL_TOOLBAR = [
+      ['bold', 'italic', 'underline', 'strike'],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      ['link', 'code-block'],
+      ['clean']
+    ];
+
+    const QUILL_TOOLBAR_COMPACT = [
+      ['bold', 'italic', 'underline'],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      ['link'],
+      ['clean']
+    ];
+
+    // Preamble editor
+    const preambleQuill = new Quill('#preamble-editor', {
+      theme: 'snow',
+      placeholder: 'Write an introduction for this guide...',
+      modules: { toolbar: QUILL_TOOLBAR }
+    });
+
+    let preambleTimer = null;
+    preambleQuill.on('text-change', () => {
+      document.getElementById('preamble-status').textContent = '';
+      clearTimeout(preambleTimer);
+      preambleTimer = setTimeout(() => {
+        const html = preambleQuill.getSemanticHTML();
+        fetch(`/recording/${RECORDING}/preamble`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ preamble: html })
+        }).then(() => {
+          document.getElementById('preamble-status').textContent = 'Saved';
+          setTimeout(() => {
+            document.getElementById('preamble-status').textContent = '';
+          }, 2000);
+        });
+      }, 800);
+    });
+
+    // Step description editors
+    const stepQuills = {};
+    document.querySelectorAll('.step-desc-quill').forEach(el => {
+      const stepNum = parseInt(el.dataset.step);
+      const quill = new Quill(el, {
+        theme: 'snow',
+        placeholder: 'Add a description for this step...',
+        modules: { toolbar: QUILL_TOOLBAR_COMPACT }
+      });
+
+      stepQuills[stepNum] = quill;
+
+      quill.on('text-change', () => {
+        clearTimeout(saveTimers[stepNum]);
+        saveTimers[stepNum] = setTimeout(() => {
+          const html = quill.getSemanticHTML();
+          fetch(`/recording/${RECORDING}/step/${stepNum}/description`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ description: html })
+          });
+        }, 800);
+      });
+    });
+
+    // ==================== Delete ====================
+    function deleteStep(stepNum, btn) {
+      if (!confirm('Delete this step and its screenshot?')) return;
+      fetch(`/recording/${RECORDING}/step/${stepNum}`, {method: 'DELETE'})
+        .then(r => r.json())
+        .then(() => {
+          const card = btn.closest('.step-card');
+          card.style.transition = 'opacity 0.3s';
+          card.style.opacity = '0';
+          setTimeout(() => card.remove(), 300);
+        });
+    }
+
+    // ==================== Crop ====================
+    function startCrop(btn, stepNum) {
+      const card = btn.closest('.step-card');
+      const container = card.querySelector('.img-container');
+      const img = container.querySelector('img');
+      container.style.overflow = 'visible';
+      activeCroppers[stepNum] = new Cropper(img, {
+        viewMode: 1,
+        autoCropArea: 0.8,
+        responsive: true,
+      });
+      card.querySelector('.crop-btn').classList.add('hidden');
+      card.querySelector('.annotate-btn').classList.add('hidden');
+      card.querySelector('.save-crop-btn').classList.remove('hidden');
+      card.querySelector('.cancel-crop-btn').classList.remove('hidden');
+    }
+
+    function saveCrop(btn, stepNum) {
+      const cropper = activeCroppers[stepNum];
+      if (!cropper) return;
+      const cropData = cropper.getData(true);
+      fetch(`/recording/${RECORDING}/step/${stepNum}/crop`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          x: cropData.x, y: cropData.y,
+          width: cropData.width, height: cropData.height
+        })
+      }).then(r => r.json()).then(() => {
+        const card = btn.closest('.step-card');
+        const img = card.querySelector('.step-img');
+        cropper.destroy();
+        delete activeCroppers[stepNum];
+        img.src = img.src.split('?')[0] + '?t=' + Date.now();
+        card.querySelector('.img-container').style.overflow = '';
+        card.querySelector('.crop-btn').classList.remove('hidden');
+        card.querySelector('.annotate-btn').classList.remove('hidden');
+        card.querySelector('.save-crop-btn').classList.add('hidden');
+        card.querySelector('.cancel-crop-btn').classList.add('hidden');
+      });
+    }
+
+    function cancelCrop(btn, stepNum) {
+      const cropper = activeCroppers[stepNum];
+      if (cropper) { cropper.destroy(); delete activeCroppers[stepNum]; }
+      const card = btn.closest('.step-card');
+      card.querySelector('.img-container').style.overflow = '';
+      card.querySelector('.crop-btn').classList.remove('hidden');
+      card.querySelector('.annotate-btn').classList.remove('hidden');
+      card.querySelector('.save-crop-btn').classList.add('hidden');
+      card.querySelector('.cancel-crop-btn').classList.add('hidden');
+    }
+
+    // ==================== Annotate ====================
+    let annotateStates = {};
+    let activeAnnotateStep = null;
+
+    function startAnnotate(btn, stepNum) {
+      const card = btn.closest('.step-card');
+      const container = card.querySelector('.img-container');
+      const img = card.querySelector('.step-img');
+
+      const setup = () => {
+        const canvas = document.createElement('canvas');
+        canvas.className = 'annotate-canvas tool-pen';
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        container.appendChild(canvas);
+
+        const ctx = canvas.getContext('2d');
+        const toolbar = card.querySelector('.annotate-toolbar');
+
+        annotateStates[stepNum] = {
+          canvas, ctx, card, container,
+          tool: 'pen',
+          color: '#ef4444',
+          lineWidth: 3,
+          drawing: false,
+          startX: 0, startY: 0,
+          history: [],
+          activeTextInput: null,
+        };
+        activeAnnotateStep = stepNum;
+
+        annotateStates[stepNum].history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+
+        canvas.addEventListener('mousedown', e => onAnnotateDown(e, stepNum));
+        canvas.addEventListener('mousemove', e => onAnnotateMove(e, stepNum));
+        canvas.addEventListener('mouseup', e => onAnnotateUp(e, stepNum));
+        canvas.addEventListener('mouseleave', e => { if (annotateStates[stepNum]?.drawing) onAnnotateUp(e, stepNum); });
+
+        toolbar.classList.remove('hidden');
+        card.querySelector('.crop-btn').classList.add('hidden');
+        card.querySelector('.annotate-btn').classList.add('hidden');
+
+        const sizeInput = toolbar.querySelector('.annotate-size');
+        updateSizePreview(sizeInput);
+      };
+
+      if (img.naturalWidth) setup();
+      else img.onload = setup;
+    }
+
+    function getCanvasCoords(e, canvas) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - rect.left) * (canvas.width / rect.width),
+        y: (e.clientY - rect.top) * (canvas.height / rect.height)
+      };
+    }
+
+    function getDisplayCoords(e, container) {
+      const rect = container.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    }
+
+    function onAnnotateDown(e, stepNum) {
+      const st = annotateStates[stepNum];
+      if (!st) return;
+
+      const toolbar = st.card.querySelector('.annotate-toolbar');
+      st.lineWidth = parseInt(toolbar.querySelector('.annotate-size').value);
+
+      const pos = getCanvasCoords(e, st.canvas);
+
+      if (st.tool === 'text') {
+        if (st.activeTextInput) commitText(stepNum);
+        const displayPos = getDisplayCoords(e, st.container);
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'canvas-text-input';
+        const fontSize = Math.max(14, st.lineWidth * 3);
+        input.style.cssText = `
+          left: ${displayPos.x}px;
+          top: ${displayPos.y - fontSize}px;
+          font-size: ${fontSize}px;
+          font-weight: bold;
+          font-family: sans-serif;
+          color: ${st.color};
+        `;
+        input.dataset.canvasX = pos.x;
+        input.dataset.canvasY = pos.y;
+        st.container.appendChild(input);
+        input.focus();
+        st.activeTextInput = input;
+
+        input.addEventListener('keydown', ev => {
+          if (ev.key === 'Enter') { ev.preventDefault(); commitText(stepNum); }
+          if (ev.key === 'Escape') { ev.preventDefault(); cancelText(stepNum); }
+          ev.stopPropagation();
+        });
+        return;
+      }
+
+      if (st.activeTextInput) commitText(stepNum);
+
+      st.drawing = true;
+      st.startX = pos.x;
+      st.startY = pos.y;
+
+      st.history.push(st.ctx.getImageData(0, 0, st.canvas.width, st.canvas.height));
+
+      if (st.tool === 'pen') {
+        st.ctx.beginPath();
+        st.ctx.moveTo(pos.x, pos.y);
+        st.ctx.strokeStyle = st.color;
+        st.ctx.lineWidth = st.lineWidth;
+        st.ctx.lineCap = 'round';
+        st.ctx.lineJoin = 'round';
+      }
+    }
+
+    function onAnnotateMove(e, stepNum) {
+      const st = annotateStates[stepNum];
+      if (!st || !st.drawing) return;
+      const pos = getCanvasCoords(e, st.canvas);
+
+      if (st.tool === 'pen') {
+        st.ctx.lineTo(pos.x, pos.y);
+        st.ctx.stroke();
+      } else {
+        const last = st.history[st.history.length - 1];
+        st.ctx.putImageData(last, 0, 0);
+        st.ctx.strokeStyle = st.color;
+        st.ctx.lineWidth = st.lineWidth;
+        st.ctx.lineCap = 'round';
+
+        if (st.tool === 'rect') {
+          st.ctx.strokeRect(st.startX, st.startY, pos.x - st.startX, pos.y - st.startY);
+        } else if (st.tool === 'circle') {
+          const rx = Math.abs(pos.x - st.startX) / 2;
+          const ry = Math.abs(pos.y - st.startY) / 2;
+          const cx = st.startX + (pos.x - st.startX) / 2;
+          const cy = st.startY + (pos.y - st.startY) / 2;
+          st.ctx.beginPath();
+          st.ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+          st.ctx.stroke();
+        } else if (st.tool === 'arrow') {
+          drawArrow(st.ctx, st.startX, st.startY, pos.x, pos.y, st.lineWidth);
+        }
+      }
+    }
+
+    function onAnnotateUp(e, stepNum) {
+      const st = annotateStates[stepNum];
+      if (!st || !st.drawing) return;
+      st.drawing = false;
+      if (st.tool === 'pen') st.ctx.closePath();
+    }
+
+    function commitText(stepNum) {
+      const st = annotateStates[stepNum];
+      if (!st || !st.activeTextInput) return;
+      const input = st.activeTextInput;
+      const text = input.value.trim();
+      if (text) {
+        st.history.push(st.ctx.getImageData(0, 0, st.canvas.width, st.canvas.height));
+        const canvasX = parseFloat(input.dataset.canvasX);
+        const canvasY = parseFloat(input.dataset.canvasY);
+        const fontSize = Math.max(14, st.lineWidth * 3);
+        const displayScale = st.canvas.width / st.canvas.getBoundingClientRect().width;
+        const scaledFontSize = fontSize * displayScale;
+        st.ctx.font = `bold ${scaledFontSize}px sans-serif`;
+        st.ctx.fillStyle = st.color;
+        st.ctx.fillText(text, canvasX, canvasY);
+      }
+      input.remove();
+      st.activeTextInput = null;
+    }
+
+    function cancelText(stepNum) {
+      const st = annotateStates[stepNum];
+      if (!st || !st.activeTextInput) return;
+      st.activeTextInput.remove();
+      st.activeTextInput = null;
+    }
+
+    function drawArrow(ctx, x1, y1, x2, y2, lineWidth) {
+      const headLen = Math.max(lineWidth * 5, 12);
+      const angle = Math.atan2(y2 - y1, x2 - x1);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
+      ctx.stroke();
+    }
+
+    function setTool(btn, tool) {
+      const toolbar = btn.closest('.annotate-toolbar');
+      toolbar.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('tool-active'));
+      btn.classList.add('tool-active');
+      const card = btn.closest('.step-card');
+      const stepNum = parseInt(card.dataset.step);
+      const st = annotateStates[stepNum];
+      if (st) {
+        if (st.activeTextInput) commitText(stepNum);
+        st.tool = tool;
+        st.canvas.className = 'annotate-canvas tool-' + tool;
+      }
+    }
+
+    function pickColor(swatch) {
+      const toolbar = swatch.closest('.annotate-toolbar');
+      toolbar.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+      swatch.classList.add('active');
+      const color = swatch.dataset.color;
+      toolbar.querySelector('.annotate-color').value = color;
+      const card = toolbar.closest('.step-card');
+      const stepNum = parseInt(card.dataset.step);
+      if (annotateStates[stepNum]) annotateStates[stepNum].color = color;
+    }
+
+    function pickCustomColor(input) {
+      const toolbar = input.closest('.annotate-toolbar');
+      toolbar.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+      const color = input.value;
+      const card = toolbar.closest('.step-card');
+      const stepNum = parseInt(card.dataset.step);
+      if (annotateStates[stepNum]) annotateStates[stepNum].color = color;
+    }
+
+    function updateSizePreview(rangeInput) {
+      const preview = rangeInput.parentElement.querySelector('.size-dot');
+      const val = parseInt(rangeInput.value);
+      const px = Math.max(3, val * 2);
+      preview.style.width = px + 'px';
+      preview.style.height = px + 'px';
+    }
+
+    function annotateUndo(btn) {
+      const card = btn.closest('.step-card');
+      const stepNum = parseInt(card.dataset.step);
+      const st = annotateStates[stepNum];
+      if (!st || st.history.length <= 1) return;
+      if (st.activeTextInput) cancelText(stepNum);
+      st.history.pop();
+      st.ctx.putImageData(st.history[st.history.length - 1], 0, 0);
+    }
+
+    function saveAnnotation(btn, stepNum) {
+      const st = annotateStates[stepNum];
+      if (!st) return;
+      if (st.activeTextInput) commitText(stepNum);
+      btn.textContent = 'Saving...';
+      btn.disabled = true;
+      const dataUrl = st.canvas.toDataURL('image/png');
+      fetch(`/recording/${RECORDING}/step/${stepNum}/annotate`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({image_data: dataUrl})
+      }).then(r => r.json()).then(() => {
+        const card = btn.closest('.step-card');
+        const img = card.querySelector('.step-img');
+        img.src = img.src.split('?')[0] + '?t=' + Date.now();
+        cleanupAnnotate(card, stepNum);
+      });
+    }
+
+    function cancelAnnotate(btn, stepNum) {
+      const card = btn.closest('.step-card');
+      cleanupAnnotate(card, stepNum);
+    }
+
+    function cleanupAnnotate(card, stepNum) {
+      const st = annotateStates[stepNum];
+      if (st) {
+        if (st.activeTextInput) st.activeTextInput.remove();
+        if (st.canvas) st.canvas.remove();
+      }
+      delete annotateStates[stepNum];
+      if (activeAnnotateStep === stepNum) activeAnnotateStep = null;
+      card.querySelector('.annotate-toolbar').classList.add('hidden');
+      const saveBtn = card.querySelector('.annotate-toolbar .bg-green-600');
+      if (saveBtn) { saveBtn.textContent = 'Save'; saveBtn.disabled = false; }
+      card.querySelector('.crop-btn').classList.remove('hidden');
+      card.querySelector('.annotate-btn').classList.remove('hidden');
+    }
+
+    // ==================== Keyboard shortcuts ====================
+    document.addEventListener('keydown', e => {
+      if (activeAnnotateStep === null) return;
+      const st = annotateStates[activeAnnotateStep];
+      if (!st) return;
+      if (st.activeTextInput && document.activeElement === st.activeTextInput) return;
+      if (document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'INPUT') return;
+      // Don't intercept when inside a Quill editor
+      if (document.activeElement.closest('.ql-editor')) return;
+
+      const toolbar = st.card.querySelector('.annotate-toolbar');
+      const key = e.key.toLowerCase();
+
+      if (e.ctrlKey && key === 'z') {
+        e.preventDefault();
+        annotateUndo(toolbar.querySelector('[onclick*="annotateUndo"]'));
+        return;
+      }
+
+      const shortcutMap = { p: 'pen', r: 'rect', c: 'circle', a: 'arrow', t: 'text' };
+      if (shortcutMap[key]) {
+        e.preventDefault();
+        const btn = toolbar.querySelector(`[data-tool="${shortcutMap[key]}"]`);
+        if (btn) setTool(btn, shortcutMap[key]);
+      }
+    });
+  </script>
+</body>
+</html>
