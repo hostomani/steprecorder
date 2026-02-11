@@ -180,6 +180,23 @@ def update_step_title(name, step_num):
     return jsonify({"error": "Step not found"}), 404
 
 
+@app.route("/recording/<name>/step/<int:step_num>/description_above", methods=["POST"])
+def update_description_above(name, step_num):
+    data = load_steps(name)
+    if not data:
+        return jsonify({"error": "Recording not found"}), 404
+    body = request.get_json()
+    description_above = body.get("description_above", "")
+    for step in data["steps"]:
+        if step["step_number"] == step_num:
+            if "details" not in step or step["details"] is None:
+                step["details"] = {}
+            step["details"]["description_above"] = description_above
+            save_steps(name, data)
+            return jsonify({"ok": True})
+    return jsonify({"error": "Step not found"}), 404
+
+
 @app.route("/recording/<name>/step/<int:step_num>/description", methods=["POST"])
 def update_description(name, step_num):
     data = load_steps(name)

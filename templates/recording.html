@@ -142,6 +142,11 @@
                  oninput="autoSaveTitle(this, {{ step.step_number }})">
         </div>
 
+        <!-- Pre-screenshot description -->
+        <div class="step-desc-editor mb-3">
+          <div class="step-desc-above-quill" data-step="{{ step.step_number }}">{{ step.details.description_above | safe if step.details and step.details.description_above else '' }}</div>
+        </div>
+
         <!-- Screenshot -->
         <div class="img-container rounded border border-gray-200 mb-4">
           <img src="/recordings/{{ name }}/{{ step.screenshot }}?t={{ step.timestamp }}"
@@ -278,13 +283,37 @@
       }, 800);
     });
 
-    // Step description editors
+    // Step pre-screenshot description editors
+    const aboveQuills = {};
+    let aboveTimers = {};
+    document.querySelectorAll('.step-desc-above-quill').forEach(el => {
+      const stepNum = parseInt(el.dataset.step);
+      const quill = new Quill(el, {
+        theme: 'snow',
+        placeholder: 'Add text above the screenshot...',
+        modules: { toolbar: QUILL_TOOLBAR_COMPACT }
+      });
+      aboveQuills[stepNum] = quill;
+      quill.on('text-change', () => {
+        clearTimeout(aboveTimers[stepNum]);
+        aboveTimers[stepNum] = setTimeout(() => {
+          const html = quill.getSemanticHTML();
+          fetch(`/recording/${RECORDING}/step/${stepNum}/description_above`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ description_above: html })
+          });
+        }, 800);
+      });
+    });
+
+    // Step post-screenshot description editors
     const stepQuills = {};
     document.querySelectorAll('.step-desc-quill').forEach(el => {
       const stepNum = parseInt(el.dataset.step);
       const quill = new Quill(el, {
         theme: 'snow',
-        placeholder: 'Add a description for this step...',
+        placeholder: 'Add text below the screenshot...',
         modules: { toolbar: QUILL_TOOLBAR_COMPACT }
       });
 

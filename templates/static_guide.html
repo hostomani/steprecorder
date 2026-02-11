@@ -192,16 +192,13 @@
             <div class="flex-1 min-w-0 pt-1.5">
               {% if step.details and step.details.title %}
               <h3 class="text-lg font-semibold text-gray-900 mb-1">{{ step.details.title }}</h3>
-              <p class="text-xs text-gray-400 mb-2">
-                {{ step.action_type | replace('_', ' ') | title }}{% if step.application and step.application.name %} in {{ step.application.name }}{% endif %}
-              </p>
               {% else %}
               <p class="text-sm text-gray-500 mb-2">
                 {{ step.action_type | replace('_', ' ') | title }}{% if step.application and step.application.name %} in {{ step.application.name }}{% endif %}
               </p>
               {% endif %}
-              {% if step.details and step.details.description %}
-              <div class="rich-text text-gray-800 text-sm mb-4 leading-relaxed">{{ step.details.description | safe }}</div>
+              {% if step.details and step.details.description_above %}
+              <div class="rich-text text-gray-800 text-sm mb-4 leading-relaxed">{{ step.details.description_above | safe }}</div>
               {% endif %}
 
               <div class="screenshot-wrapper">
@@ -214,6 +211,10 @@
                 <div class="click-highlight" style="display:none;" data-click></div>
                 {% endif %}
               </div>
+
+              {% if step.details and step.details.description %}
+              <div class="rich-text text-gray-800 text-sm mt-4 leading-relaxed">{{ step.details.description | safe }}</div>
+              {% endif %}
             </div>
           </div>
         </div>
