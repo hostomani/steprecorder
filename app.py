@@ -7,11 +7,12 @@ import json
 import os
 import shutil
 import signal
+import zipfile
 import subprocess
 import sys
 from pathlib import Path
 
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, send_file
 from PIL import Image
 
 app = Flask(__name__)
@@ -97,6 +98,53 @@ def guide(name):
                 })
     preamble = data.get("preamble", "")
     return render_template("guide.html", name=name, title=title, steps=steps, all_guides=all_guides, preamble=preamble)
+
+
+@app.route("/export")
+def export_static():
+    all_guides = []
+    if RECORDINGS_DIR.exists():
+        for entry in sorted(RECORDINGS_DIR.iterdir()):
+            if entry.is_dir() and (entry / "steps.json").exists():
+                data = load_steps(entry.name)
+                if not data:
+                    continue
+                steps = [s for s in data.get("steps", []) if s.get("screenshot")]
+                if not steps:
+                    continue
+                all_guides.append({
+                    "name": entry.name,
+                    "title": entry.name.replace("_", " ").replace("-", " ").title(),
+                    "total_steps": len(steps),
+                    "date": data.get("start_time", "")[:10],
+                    "steps": steps,
+                    "preamble": data.get("preamble", ""),
+                    "thumbnail": steps[0]["screenshot"] if steps else None,
+                })
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        index_html = render_template("static_index.html", guides=all_guides)
+        zf.writestr("index.html", index_html)
+
+        for g in all_guides:
+            guide_html = render_template(
+                "static_guide.html",
+                name=g["name"],
+                title=g["title"],
+                steps=g["steps"],
+                preamble=g["preamble"],
+                all_guides=all_guides,
+            )
+            zf.writestr(f"{g['name']}/index.html", guide_html)
+            for step in g["steps"]:
+                screenshot_path = RECORDINGS_DIR / g["name"] / step["screenshot"]
+                if screenshot_path.exists():
+                    zf.write(screenshot_path, f"{g['name']}/{step['screenshot']}")
+
+    buf.seek(0)
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name="documentation-export.zip")
 
 
 @app.route("/recordings/<path:filepath>")

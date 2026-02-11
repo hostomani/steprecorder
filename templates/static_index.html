@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentation Hub</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif; }
+    .card-hover { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 25px -5px rgba(0,0,0,0.1); }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <header class="bg-white border-b border-gray-200">
+    <div class="max-w-6xl mx-auto px-6 py-4">
+      <h1 class="text-xl font-semibold text-gray-900 tracking-tight">Documentation Hub</h1>
+      <p class="text-xs text-gray-400 mt-0.5">Step-by-step guides from recorded sessions</p>
+    </div>
+  </header>
+
+  <div class="max-w-6xl mx-auto px-6 py-8">
+    <div class="flex items-center justify-between mb-6">
+      <h2 class="text-lg font-semibold text-gray-900">Guides</h2>
+      <span class="text-sm text-gray-400">{{ guides|length }} guide{{ 's' if guides|length != 1 else '' }}</span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+      {% for g in guides %}
+      <a href="{{ g.name }}/index.html" class="block bg-white border border-gray-200 rounded-lg overflow-hidden card-hover no-underline">
+        {% if g.thumbnail %}
+        <div class="h-44 bg-gray-100 overflow-hidden border-b border-gray-100">
+          <img src="{{ g.name }}/{{ g.thumbnail }}" alt="" class="w-full h-full object-cover object-top">
+        </div>
+        {% else %}
+        <div class="h-44 bg-gray-100 flex items-center justify-center border-b border-gray-100">
+          <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        </div>
+        {% endif %}
+        <div class="p-4">
+          <h3 class="text-sm font-semibold text-gray-900 leading-snug">{{ g.title }}</h3>
+          <div class="mt-1.5 flex items-center gap-3 text-xs text-gray-400">
+            <span>{{ g.total_steps }} step{{ 's' if g.total_steps != 1 else '' }}</span>
+            {% if g.date %}<span>{{ g.date }}</span>{% endif %}
+          </div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</body>
+</html>
