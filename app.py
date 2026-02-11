@@ -115,6 +115,23 @@ def update_preamble(name):
     return jsonify({"ok": True})
 
 
+@app.route("/recording/<name>/step/<int:step_num>/title", methods=["POST"])
+def update_step_title(name, step_num):
+    data = load_steps(name)
+    if not data:
+        return jsonify({"error": "Recording not found"}), 404
+    body = request.get_json()
+    title = body.get("title", "")
+    for step in data["steps"]:
+        if step["step_number"] == step_num:
+            if "details" not in step or step["details"] is None:
+                step["details"] = {}
+            step["details"]["title"] = title
+            save_steps(name, data)
+            return jsonify({"ok": True})
+    return jsonify({"error": "Step not found"}), 404
+
+
 @app.route("/recording/<name>/step/<int:step_num>/description", methods=["POST"])
 def update_description(name, step_num):
     data = load_steps(name)

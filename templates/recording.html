@@ -22,6 +22,7 @@
     .annotate-canvas.tool-circle { cursor: crosshair; }
     .annotate-canvas.tool-arrow  { cursor: crosshair; }
     .annotate-canvas.tool-text   { cursor: text; }
+    .annotate-canvas.tool-blur   { cursor: crosshair; }
 
     .tool-active {
       background-color: #3b82f6 !important;
@@ -115,19 +116,17 @@
     <div id="steps-list" class="space-y-8">
       {% for step in steps %}
       <div class="bg-white rounded-lg shadow p-6 step-card" data-step="{{ step.step_number }}">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-3">
-            <span class="bg-blue-600 text-white text-sm font-bold rounded-full w-8 h-8 flex items-center justify-center">{{ loop.index }}</span>
-            <div class="text-sm text-gray-500">
-              <span class="font-medium text-gray-700">{{ step.action_type | replace('_', ' ') | title }}</span>
-              {% if step.application and step.application.name %}
-                in {{ step.application.name }}
-              {% endif %}
-              {% if step.position %}
-                at ({{ step.position.x }}, {{ step.position.y }})
-              {% endif %}
+        <div class="mb-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <span class="bg-blue-600 text-white text-sm font-bold rounded-full w-8 h-8 flex items-center justify-center">{{ loop.index }}</span>
+              <div class="text-sm text-gray-500">
+                <span class="font-medium text-gray-700">{{ step.action_type | replace('_', ' ') | title }}</span>
+                {% if step.application and step.application.name %}
+                  in {{ step.application.name }}
+                {% endif %}
+              </div>
             </div>
-          </div>
           <div class="flex items-center gap-2">
             <button onclick="startAnnotate(this, {{ step.step_number }})" class="annotate-btn px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition">Annotate</button>
             <button onclick="startCrop(this, {{ step.step_number }})" class="crop-btn px-3 py-1 text-sm bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 transition">Crop</button>
@@ -135,6 +134,12 @@
             <button onclick="cancelCrop(this, {{ step.step_number }})" class="cancel-crop-btn hidden px-3 py-1 text-sm bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition">Cancel</button>
             <button onclick="deleteStep({{ step.step_number }}, this)" class="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 transition">Delete</button>
           </div>
+          </div>
+          <input type="text" class="step-title-input w-full mt-2 border border-gray-200 bg-gray-50 rounded px-3 py-1.5 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent placeholder-gray-400"
+                 placeholder="Step title (e.g. Click the Settings button)"
+                 value="{{ step.details.title if step.details and step.details.title else '' }}"
+                 data-step="{{ step.step_number }}"
+                 oninput="autoSaveTitle(this, {{ step.step_number }})">
         </div>
 
         <!-- Screenshot -->
@@ -164,6 +169,9 @@
               </button>
               <button onclick="setTool(this,'text')" class="tool-btn px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300" data-tool="text" title="Text (T)">
                 <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M12 6v14m-4 0h8"/></svg>
+              </button>
+              <button onclick="setTool(this,'blur')" class="tool-btn px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300" data-tool="blur" title="Blur (B)">
+                <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"/></svg>
               </button>
             </div>
 
@@ -196,7 +204,7 @@
           </div>
           <!-- Hint bar -->
           <div class="px-3 py-1 text-xs text-gray-400 border-t border-gray-200 bg-gray-100 rounded-b">
-            Shortcuts: <b>P</b> Pen &middot; <b>R</b> Rect &middot; <b>C</b> Circle &middot; <b>A</b> Arrow &middot; <b>T</b> Text &middot; <b>Ctrl+Z</b> Undo
+            Shortcuts: <b>P</b> Pen &middot; <b>R</b> Rect &middot; <b>C</b> Circle &middot; <b>A</b> Arrow &middot; <b>T</b> Text &middot; <b>B</b> Blur &middot; <b>Ctrl+Z</b> Undo
           </div>
         </div>
 
@@ -215,6 +223,19 @@
     const RECORDING = "{{ name }}";
     let activeCroppers = {};
     let saveTimers = {};
+    let titleTimers = {};
+
+    // ==================== Step title ====================
+    function autoSaveTitle(el, stepNum) {
+      clearTimeout(titleTimers[stepNum]);
+      titleTimers[stepNum] = setTimeout(() => {
+        fetch(`/recording/${RECORDING}/step/${stepNum}/title`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ title: el.value })
+        });
+      }, 600);
+    }
 
     // ==================== Quill editors ====================
     const QUILL_TOOLBAR = [
@@ -494,6 +515,13 @@
           st.ctx.stroke();
         } else if (st.tool === 'arrow') {
           drawArrow(st.ctx, st.startX, st.startY, pos.x, pos.y, st.lineWidth);
+        } else if (st.tool === 'blur') {
+          // Preview: dashed rect
+          st.ctx.setLineDash([6, 4]);
+          st.ctx.strokeStyle = '#6b7280';
+          st.ctx.lineWidth = 1;
+          st.ctx.strokeRect(st.startX, st.startY, pos.x - st.startX, pos.y - st.startY);
+          st.ctx.setLineDash([]);
         }
       }
     }
@@ -503,6 +531,10 @@
       if (!st || !st.drawing) return;
       st.drawing = false;
       if (st.tool === 'pen') st.ctx.closePath();
+      if (st.tool === 'blur') {
+        const pos = getCanvasCoords(e, st.canvas);
+        applyBlur(st, pos);
+      }
     }
 
     function commitText(stepNum) {
@@ -530,6 +562,54 @@
       if (!st || !st.activeTextInput) return;
       st.activeTextInput.remove();
       st.activeTextInput = null;
+    }
+
+    function applyBlur(st, endPos) {
+      // Restore clean state, then apply blur on the region
+      const last = st.history[st.history.length - 1];
+      st.ctx.putImageData(last, 0, 0);
+
+      const x = Math.min(st.startX, endPos.x);
+      const y = Math.min(st.startY, endPos.y);
+      const w = Math.abs(endPos.x - st.startX);
+      const h = Math.abs(endPos.y - st.startY);
+      if (w < 2 || h < 2) return;
+
+      // Get underlying image pixels (combine original image + current canvas)
+      const img = st.card.querySelector('.step-img');
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = st.canvas.width;
+      tmpCanvas.height = st.canvas.height;
+      const tmpCtx = tmpCanvas.getContext('2d');
+      tmpCtx.drawImage(img, 0, 0, st.canvas.width, st.canvas.height);
+      // Draw current annotations on top
+      tmpCtx.drawImage(st.canvas, 0, 0);
+
+      // Extract region, pixelate it (fast blur effect)
+      const regionData = tmpCtx.getImageData(x, y, w, h);
+      const blockSize = Math.max(8, Math.round(Math.min(w, h) / 10));
+      const rd = regionData.data;
+      for (let by = 0; by < h; by += blockSize) {
+        for (let bx = 0; bx < w; bx += blockSize) {
+          let r = 0, g = 0, b = 0, a = 0, count = 0;
+          for (let dy = 0; dy < blockSize && by + dy < h; dy++) {
+            for (let dx = 0; dx < blockSize && bx + dx < w; dx++) {
+              const i = ((by + dy) * w + (bx + dx)) * 4;
+              r += rd[i]; g += rd[i+1]; b += rd[i+2]; a += rd[i+3]; count++;
+            }
+          }
+          r = Math.round(r/count); g = Math.round(g/count);
+          b = Math.round(b/count); a = Math.round(a/count);
+          for (let dy = 0; dy < blockSize && by + dy < h; dy++) {
+            for (let dx = 0; dx < blockSize && bx + dx < w; dx++) {
+              const i = ((by + dy) * w + (bx + dx)) * 4;
+              rd[i] = r; rd[i+1] = g; rd[i+2] = b; rd[i+3] = a;
+            }
+          }
+        }
+      }
+      // Draw the pixelated region onto the annotation canvas (as opaque pixels)
+      st.ctx.putImageData(regionData, x, y);
     }
 
     function drawArrow(ctx, x1, y1, x2, y2, lineWidth) {
@@ -657,7 +737,7 @@
         return;
       }
 
-      const shortcutMap = { p: 'pen', r: 'rect', c: 'circle', a: 'arrow', t: 'text' };
+      const shortcutMap = { p: 'pen', r: 'rect', c: 'circle', a: 'arrow', t: 'text', b: 'blur' };
       if (shortcutMap[key]) {
         e.preventDefault();
         const btn = toolbar.querySelector(`[data-tool="${shortcutMap[key]}"]`);

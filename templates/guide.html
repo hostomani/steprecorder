@@ -32,6 +32,25 @@
       border: 1px solid #e5e7eb;
       box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
     }
+    .screenshot-wrapper {
+      position: relative;
+      display: inline-block;
+      width: 100%;
+    }
+    .click-highlight {
+      position: absolute;
+      width: 10px; height: 10px;
+      margin-left: -5px; margin-top: -5px;
+      border-radius: 50%;
+      background: #ef4444;
+      pointer-events: none;
+      animation: click-pulse 1.5s ease-out infinite;
+    }
+    @keyframes click-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); transform: scale(1); }
+      50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); transform: scale(1.2); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); transform: scale(1); }
+    }
 
     /* Sidebar */
     .sidebar-left {
@@ -174,17 +193,30 @@
 
             <!-- Content -->
             <div class="flex-1 min-w-0 pt-1.5">
+              {% if step.details and step.details.title %}
+              <h3 class="text-lg font-semibold text-gray-900 mb-1">{{ step.details.title }}</h3>
               <p class="text-xs text-gray-400 mb-2">
                 {{ step.action_type | replace('_', ' ') | title }}{% if step.application and step.application.name %} in {{ step.application.name }}{% endif %}
               </p>
+              {% else %}
+              <p class="text-sm text-gray-500 mb-2">
+                {{ step.action_type | replace('_', ' ') | title }}{% if step.application and step.application.name %} in {{ step.application.name }}{% endif %}
+              </p>
+              {% endif %}
               {% if step.details and step.details.description %}
               <div class="rich-text text-gray-800 text-sm mb-4 leading-relaxed">{{ step.details.description | safe }}</div>
               {% endif %}
 
-              <img src="/recordings/{{ name }}/{{ step.screenshot }}"
-                   alt="Step {{ loop.index }}"
-                   class="doc-screenshot w-full h-auto"
-                   loading="lazy">
+              <div class="screenshot-wrapper">
+                <img src="/recordings/{{ name }}/{{ step.screenshot }}"
+                     alt="Step {{ loop.index }}"
+                     class="doc-screenshot w-full h-auto"
+                     loading="lazy"
+                     {% if step.position %}data-click-x="{{ step.position.x }}" data-click-y="{{ step.position.y }}"{% endif %}>
+                {% if step.position %}
+                <div class="click-highlight" style="display:none;" data-click></div>
+                {% endif %}
+              </div>
             </div>
           </div>
         </div>
@@ -205,7 +237,9 @@
           {% for step in steps %}
           <a href="#step-{{ loop.index }}" class="toc-link" data-step="{{ loop.index }}">
             <span class="text-xs text-gray-400 font-mono mr-1">{{ loop.index }}.</span>
-            {% if step.details and step.details.description %}
+            {% if step.details and step.details.title %}
+              {{ step.details.title | truncate(50) }}
+            {% elif step.details and step.details.description %}
               {{ step.details.description | striptags | truncate(50) }}
             {% else %}
               {{ step.action_type | replace('_', ' ') | title }}{% if step.application and step.application.name %} in {{ step.application.name }}{% endif %}
@@ -236,6 +270,24 @@
 
     window.addEventListener('scroll', updateActiveToc, { passive: true });
     updateActiveToc();
+
+    // Position click highlights after images load
+    document.querySelectorAll('.screenshot-wrapper img[data-click-x]').forEach(img => {
+      const place = () => {
+        const highlight = img.parentElement.querySelector('[data-click]');
+        if (!highlight || !img.naturalWidth) return;
+        const clickX = parseFloat(img.dataset.clickX);
+        const clickY = parseFloat(img.dataset.clickY);
+        // Multiply by 2 to convert macOS logical points to Retina physical pixels
+        const pctX = (clickX * 2 / img.naturalWidth * 100);
+        const pctY = (clickY * 2 / img.naturalHeight * 100);
+        highlight.style.left = pctX + '%';
+        highlight.style.top = pctY + '%';
+        highlight.style.display = 'block';
+      };
+      if (img.complete && img.naturalWidth) place();
+      else img.addEventListener('load', place);
+    });
   </script>
 </body>
 </html>
